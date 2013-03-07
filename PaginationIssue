@@ -1,0 +1,1256 @@
+
+GO
+/****** Object:  Table [dbo].[themes]    Script Date: 03/07/2013 17:42:34 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[themes](
+  [THEMENR] [int] IDENTITY(1,1) NOT NULL,
+	[THEMENAME] [nvarchar](255) NOT NULL,
+	[STYLE] [nvarchar](max) NOT NULL,
+	[IMAGE] [nvarchar](255) NOT NULL,
+	[ShopNR] [int] NULL,
+	[ISPUBLIC] [bit] NOT NULL,
+	[ISACCEPTED] [bit] NOT NULL,
+	[ISDEFAULT] [bit] NOT NULL,
+ CONSTRAINT [PK_themes_THEMENR] PRIMARY KEY CLUSTERED 
+(
+	[THEMENR] ASC
+)WITH (PAD_INDEX  = OFF, STATISTICS_NORECOMPUTE  = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS  = ON, ALLOW_PAGE_LOCKS  = ON) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[Shop]    Script Date: 03/07/2013 17:42:34 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+SET ANSI_PADDING ON
+GO
+CREATE TABLE [dbo].[Shop](
+	[ShopNR] [int] IDENTITY(4,1) NOT NULL,
+	[USERNR] [int] NOT NULL,
+	[URLNAME] [nvarchar](50) NULL,
+	[HEADER] [nvarchar](45) NOT NULL,
+	[ShopID] [uniqueidentifier] NOT NULL,
+	[IMAGESPACE] [int] NOT NULL,
+	[DESCRIPTION] [nvarchar](max) NOT NULL,
+	[ACTIVE] [bit] NOT NULL,
+	[THEMENR] [int] NOT NULL,
+	[AVATAR] [nvarchar](255) NOT NULL,
+	[CREATEDATE] [datetime2](0) NOT NULL,
+	[UNITLIKE] [int] NOT NULL,
+	[UNITDISLIKE] [int] NOT NULL,
+	[LATITUDE] [float] NOT NULL,
+	[LONGITUDE] [float] NOT NULL,
+	[CURRENCY] [varchar](10) NOT NULL,
+	[NOACTIVEITEMS] [int] NOT NULL,
+	[LASTUPDATED] [datetime2](0) NOT NULL,
+	[CITYID] [int] NOT NULL,
+	[PREMIUMTYPE] [tinyint] NOT NULL,
+	[UNITFOLLOWERS] [int] NOT NULL,
+ CONSTRAINT [PK_Shop_ShopNR] PRIMARY KEY CLUSTERED 
+(
+	[ShopNR] ASC
+)WITH (PAD_INDEX  = OFF, STATISTICS_NORECOMPUTE  = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS  = ON, ALLOW_PAGE_LOCKS  = ON) ON [PRIMARY],
+ CONSTRAINT [Shop$IN_ShopID_UNIQUE] UNIQUE NONCLUSTERED 
+(
+	[ShopID] ASC
+)WITH (PAD_INDEX  = OFF, STATISTICS_NORECOMPUTE  = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS  = ON, ALLOW_PAGE_LOCKS  = ON) ON [PRIMARY],
+ CONSTRAINT [Shop$IN_USERNR_UNIQUE] UNIQUE NONCLUSTERED 
+(
+	[USERNR] ASC
+)WITH (PAD_INDEX  = OFF, STATISTICS_NORECOMPUTE  = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS  = ON, ALLOW_PAGE_LOCKS  = ON) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+SET ANSI_PADDING OFF
+GO
+/****** Object:  StoredProcedure [dbo].[Item_SearchItemsSP]    Script Date: 03/07/2013 17:42:32 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE PROCEDURE [dbo].[Item_SearchItemsSP]
+@ShopNr INT, @unitItems INT=20, @sortOrder INT=0, @language CHAR (2)='EN', @catId INT, @search NVARCHAR (100)='', @countryIso NCHAR (2)='', @regionNr INT=0, @cityId INT=0, @maxPrice DECIMAL (10, 2), @page INT, @currentDate DATETIME2 (0), @distance NUMERIC (4, 1), @isFavoriteShop BIT=0, @currentUserNr INT=0, @latitude FLOAT (53)=0, @longitude FLOAT (53)=0, @itemType TINYINT=0
+AS
+BEGIN
+
+      SET  XACT_ABORT  ON
+
+      SET  NOCOUNT  ON
+      
+      DECLARE @sql NVARCHAR(MAX);
+      DECLARE @sqlSelect NVARCHAR(MAX) = '';
+      DECLARE @sqlFrom NVARCHAR(MAX) = '';
+      DECLARE @sqlClause NVARCHAR(MAX) = '';
+      DECLARE @sqlGroup NVARCHAR(MAX) = ''
+      DECLARE @params NVARCHAR(MAX);
+   DECLARE @citysearch bit = 0;
+      DECLARE @gpssearch bit = 0;
+      DECLARE @sortorderstring NVARCHAR(MAX) = 'ORDER BY IT.CREATEDATE DESC';
+      DECLARE @sortorderstring2 NVARCHAR(MAX) = '';
+      
+     
+
+   if (@sortOrder = 1)
+  SET @sortorderstring = 'ORDER BY IT.HEADER ASC'
+    ELSE IF (@sortOrder = 2) 
+  SET @sortorderstring = 'ORDER BY IT.HEADER DESC'
+    ELSE IF (@sortOrder = 3)
+  SET @sortorderstring = 'ORDER BY IT.SHOWDATE DESC'
+    ELSE IF (@sortOrder = 4) 
+  SET @sortorderstring = 'ORDER BY IT.SHOWDATE ASC'
+    ELSE IF (@sortOrder = 5) 
+  SET @sortorderstring = 'ORDER BY IT.PRICE ASC'
+    ELSE IF (@sortOrder = 6) 
+  SET @sortorderstring = 'ORDER BY IT.PRICE DESC'
+    ELSE IF (@sortOrder = 7) 
+  BEGIN
+   SET @sortorderstring2 = 'ORDER BY IT.DISTANCE ASC'
+  
+  END
+ ELSE
+  SET @sortorderstring = 'ORDER BY IT.SHOWDATE DESC'
+  
+ IF (@sortorderstring2='')
+  SET @sortorderstring2 = @sortorderstring
+
+    IF (@unitItems = 0)
+      SET @unitItems = 20
+      
+     IF (@page <= 0)
+      SET @page = 1
+ 
+
+ SET @sqlSelect = 'SELECT J.URLNAME, IT.ITEMNR, IT.USERNR, IT.ShopNR, IT.ITEMID, IT.ITEMNAME, IT.HEADER, IT.DESCRIPTION, 
+                  IT.PRICE, IT.CREATEDATE, IT.ITEMSTATUS, IT.CURRENCYCODE,IT.CATID, IT.VISIT, IT.ENDDATE, IT.PREAMBLE,IT.SHOWDATE,
+                  IT.LASTUPDATED, C.CATNAME AS CATNAME,
+                  
+                  J.HEADER AS ShopHEADER, J.LATITUDE, J.LONGITUDE,R.REGIONNAME AS REGIONNAME, CY.COUNTRYISO, R.REGIONNR, 
+                  CY.COUNTRYNAME AS COUNTRYNAME, CI.CITYNAME AS CITY, ROW_NUMBER() OVER (' + @sortorderstring + ') AS RowNumber'
+                  
+ SET @sqlGroup = ' GROUP BY J.URLNAME, IT.ITEMNR, IT.USERNR, IT.ShopNR, IT.ITEMID, IT.ITEMNAME, IT.HEADER, 
+				   IT.DESCRIPTION, IT.PRICE, IT.CREATEDATE, IT.ITEMSTATUS, IT.CURRENCYCODE,IT.CATID, IT.VISIT, IT.ENDDATE, 
+				   IT.PREAMBLE,IT.SHOWDATE,IT.LASTUPDATED,  C.CATNAME,
+				   
+				   J.HEADER, J.LATITUDE, J.LONGITUDE,R.REGIONNAME, CY.COUNTRYISO, R.REGIONNR, CY.COUNTRYNAME, CI.CITYNAME'
+  
+ 
+ SET @sqlFrom = ' FROM ITEM AS IT INNER JOIN Shop AS J ON IT.ShopNR = J.ShopNR 
+			  INNER JOIN CITY AS CI ON CI.CITYID = J.CITYID
+			  INNER JOIN COUNTRY AS CY ON CI.COUNTRYISO = CY.COUNTRYISO 
+			  INNER JOIN REGION AS R ON CI.REGIONNR = R.REGIONNR' 
+
+
+     
+    SET @sqlFrom = @sqlFrom + ' INNER JOIN CATEGORY AS C ON IT.CATID = C.CATID'
+    
+ 
+    
+ SET @sqlClause = ' WHERE J.ACTIVE = 1 AND IT.ITEMSTATUS = 1 AND IT.ENDDATE > @currentDate'
+    IF (@currentUserNr>0)
+  
+
+
+
+IF (@itemType=1) 
+	SET @sqlClause = @sqlClause + ' AND IT.ITEMTYPE = 1'
+
+    IF (@catId > 0)
+        SET @sqlClause = @sqlClause + ' AND (C.CATID = @catId OR C.PARENTCATID = @catId)'
+    IF (@ShopNr > 0)
+        SET @sqlClause = @sqlClause + ' AND IT.ShopNR = @ShopNr'
+ IF (@search <> '') 
+        SET @sqlClause = @sqlClause + ' AND ((IT.HEADER LIKE ''%' + @search + '%'') OR (IT.DESCRIPTION LIKE ''%' + @search + '%''))'
+ 
+ SET @sql = @sqlSelect + @sqlFrom + @sqlClause + @sqlGroup
+ 
+ SET @sql = 'WITH itemresult AS (' + @sql + ') '
+ SET @sql = @sql + 'SELECT IT.*, CEILING(CAST(RN AS float) / @unitItems) AS UNITPAGES, RN AS UNITROWS FROM itemresult IT INNER JOIN (SELECT Max(RowNumber) AS RN FROM itemresult) SUBQ ON 1=1 WHERE IT.RowNumber BETWEEN (@page - 1) * @unitItems + 1 AND @unitItems * @page '
+ SET @sql = @sql + @sortorderstring2
+
+
+
+   SELECT @params = N'@language nchar(2), ' +
+                    N'@ShopNr int, ' +
+                    N'@cityId int, ' +
+                    N'@catId int, ' +
+                    N'@distance numeric(4,1), ' +
+                    N'@currentDate datetime, ' + 
+                    N'@unitItems int,' + 
+                    N'@countryIso nchar(2),' + 
+     N'@regionNr int,' + 
+     N'@page int,' + 
+     N'@currentUserNr int,' +
+     N'@latitude float,' +
+     N'@longitude float'
+
+    
+    
+    
+    EXEC sp_executesql @sql, @params, @language, @ShopNr, @cityId, @catId, @distance, @currentDate, @unitItems, @countryIso, @regionNr, @page, @currentUserNr, @latitude, @longitude
+
+
+
+   END
+GO
+/****** Object:  Table [dbo].[item]    Script Date: 03/07/2013 17:42:34 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[item](
+	[ITEMNR] [int] IDENTITY(1,1) NOT NULL,
+	[USERNR] [int] NOT NULL,
+	[ShopNR] [int] NOT NULL,
+	[ITEMID] [uniqueidentifier] NOT NULL,
+	[ITEMNAME] [nvarchar](50) NULL,
+	[HEADER] [nvarchar](150) NOT NULL,
+	[DESCRIPTION] [nvarchar](max) NOT NULL,
+	[PRICE] [decimal](10, 2) NOT NULL,
+	[FRIENDPRICE] [decimal](10, 2) NOT NULL,
+	[CREATEDATE] [datetime2](0) NOT NULL,
+	[ITEMSTATUS] [bit] NOT NULL,
+	[CURRENCYCODE] [nvarchar](100) NOT NULL,
+	[CATID] [int] NOT NULL,
+	[VISIT] [int] NOT NULL,
+	[ENDDATE] [datetime] NOT NULL,
+	[PREAMBLE] [nvarchar](200) NOT NULL,
+	[SHOWDATE] [datetime] NOT NULL,
+	[LASTUPDATED] [datetime] NOT NULL,
+	[ITEMTYPE] [tinyint] NOT NULL,
+ CONSTRAINT [PK_item_ITEMNR] PRIMARY KEY CLUSTERED 
+(
+	[ITEMNR] ASC
+)WITH (PAD_INDEX  = OFF, STATISTICS_NORECOMPUTE  = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS  = ON, ALLOW_PAGE_LOCKS  = ON) ON [PRIMARY],
+ CONSTRAINT [item$ITEMID] UNIQUE NONCLUSTERED 
+(
+	[ITEMID] ASC
+)WITH (PAD_INDEX  = OFF, STATISTICS_NORECOMPUTE  = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS  = ON, ALLOW_PAGE_LOCKS  = ON) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[country]    Script Date: 03/07/2013 17:42:34 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[country](
+	[COUNTRYISO] [nvarchar](2) NOT NULL,
+	[ISO3] [nvarchar](3) NULL,
+	[ISONUMERIC] [nvarchar](3) NULL,
+	[FIPS] [nvarchar](5) NULL,
+	[COUNTRYNAME] [nvarchar](45) NULL,
+	[CAPITAL] [nvarchar](45) NULL,
+	[AREA] [int] NULL,
+	[POPULATION] [int] NULL,
+	[CONTINENT] [nvarchar](45) NULL,
+	[TLD] [nvarchar](45) NULL,
+	[CURRENCYCODE] [nvarchar](45) NULL,
+	[CURRENCYNAME] [nvarchar](45) NULL,
+	[PHONE] [nvarchar](45) NULL,
+	[POSTALCODEFORMAT] [nvarchar](100) NULL,
+	[POSTALCODEREGEX] [nvarchar](255) NULL,
+	[LANGUAGES] [nvarchar](100) NULL,
+	[GEONAMEID] [int] NULL,
+	[NEIGHBOURS] [nvarchar](45) NULL,
+	[EQUIVALENTFIBSCODE] [nvarchar](45) NULL,
+	[ALTERNATENAMES] [ntext] NULL,
+	[LATITUDE] [float] NULL,
+	[LONGITUDE] [float] NULL,
+ CONSTRAINT [PK_country_COUNTRYISO] PRIMARY KEY CLUSTERED 
+(
+	[COUNTRYISO] ASC
+)WITH (PAD_INDEX  = OFF, STATISTICS_NORECOMPUTE  = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS  = ON, ALLOW_PAGE_LOCKS  = ON) ON [PRIMARY],
+ CONSTRAINT [country$Code] UNIQUE NONCLUSTERED 
+(
+	[ISO3] ASC
+)WITH (PAD_INDEX  = OFF, STATISTICS_NORECOMPUTE  = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS  = ON, ALLOW_PAGE_LOCKS  = ON) ON [PRIMARY]
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[city3]    Script Date: 03/07/2013 17:42:34 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[city3](
+	[GEONAMEID] [int] NOT NULL,
+	[CITYNAME] [nvarchar](255) NOT NULL,
+	[ASCIINAME] [nvarchar](255) NOT NULL,
+	[ALTERNATENAME] [nvarchar](max) NULL,
+	[LATITUDE] [float] NOT NULL,
+	[LONGITUDE] [float] NOT NULL,
+	[FEATURECLASS] [nvarchar](255) NULL,
+	[FEATURECODE] [nvarchar](255) NULL,
+	[COUNTRYISO] [nvarchar](20) NOT NULL,
+	[COUNTRYISO2] [nvarchar](255) NULL,
+	[REGIONID] [nvarchar](10) NOT NULL,
+	[ADMINCODE2] [nvarchar](255) NULL,
+	[column13] [nvarchar](255) NULL,
+	[column14] [nvarchar](255) NULL,
+	[POPULATION] [int] NULL,
+	[column16] [nvarchar](255) NULL,
+	[column17] [nvarchar](255) NULL,
+	[TIMEZONE] [nvarchar](50) NOT NULL,
+	[LASTEDIT] [datetime] NOT NULL,
+	[CITYID] [int] NOT NULL,
+ CONSTRAINT [PK_city] PRIMARY KEY CLUSTERED 
+(
+	[CITYID] ASC
+)WITH (PAD_INDEX  = OFF, STATISTICS_NORECOMPUTE  = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS  = ON, ALLOW_PAGE_LOCKS  = ON) ON [PRIMARY],
+ CONSTRAINT [city$GEONAMEID] UNIQUE NONCLUSTERED 
+(
+	[GEONAMEID] ASC
+)WITH (PAD_INDEX  = OFF, STATISTICS_NORECOMPUTE  = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS  = ON, ALLOW_PAGE_LOCKS  = ON) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+EXEC sys.sp_addextendedproperty @name=N'MS_SSMA_SOURCE', @value=N'Shop.city' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'city3'
+GO
+/****** Object:  Table [dbo].[category]    Script Date: 03/07/2013 17:42:34 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[category](
+	[CATID] [int] NOT NULL,
+	[PARENTCATID] [int] NOT NULL,
+	[CATNAME] [nvarchar](255) NOT NULL,
+	[DEFAULTCAT] [bit] NOT NULL,
+	[ORDERVALUE] [int] NOT NULL,
+ CONSTRAINT [PK_category_CATID] PRIMARY KEY CLUSTERED 
+(
+	[CATID] ASC
+)WITH (PAD_INDEX  = OFF, STATISTICS_NORECOMPUTE  = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS  = ON, ALLOW_PAGE_LOCKS  = ON) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[REGION]    Script Date: 03/07/2013 17:42:34 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+SET ANSI_PADDING ON
+GO
+CREATE TABLE [dbo].[REGION](
+	[REGIONNR] [int] NOT NULL,
+	[REGIONNAME] [nvarchar](200) NULL,
+	[ASCIINAME] [nvarchar](200) NULL,
+	[ALTERNATENAMES] [ntext] NULL,
+	[LATITUDE] [float] NULL,
+	[LONGITUDE] [float] NULL,
+	[FEATURECLASS] [char](1) NULL,
+	[FEATURECODE] [nvarchar](10) NULL,
+	[COUNTRYISO] [nvarchar](2) NULL,
+	[COUNTRYISO2] [nvarchar](60) NULL,
+	[ADMIN1CODE] [nvarchar](20) NULL,
+	[ADMIN2CODE] [nvarchar](80) NULL,
+	[ADMIN3CODE] [nvarchar](20) NULL,
+	[ADMIN4CODE] [nvarchar](20) NULL,
+	[POPULATION] [bigint] NULL,
+	[ELEVATION] [int] NULL,
+	[DEM] [int] NULL,
+	[TIMEZONE] [nvarchar](40) NULL,
+	[MODIFICATIONDATE] [smalldatetime] NULL,
+ CONSTRAINT [PK_REGION2] PRIMARY KEY CLUSTERED 
+(
+	[REGIONNR] ASC
+)WITH (PAD_INDEX  = OFF, STATISTICS_NORECOMPUTE  = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS  = ON, ALLOW_PAGE_LOCKS  = ON) ON [PRIMARY]
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+SET ANSI_PADDING OFF
+GO
+/****** Object:  Default [DF__city__ALTERNATEN__023D5A04]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[city3] ADD  CONSTRAINT [DF__city__ALTERNATEN__023D5A04]  DEFAULT (NULL) FOR [ALTERNATENAME]
+GO
+/****** Object:  Default [DF__city__column7__03317E3D]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[city3] ADD  CONSTRAINT [DF__city__column7__03317E3D]  DEFAULT (NULL) FOR [FEATURECLASS]
+GO
+/****** Object:  Default [DF__city__column8__0425A276]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[city3] ADD  CONSTRAINT [DF__city__column8__0425A276]  DEFAULT (NULL) FOR [FEATURECODE]
+GO
+/****** Object:  Default [DF__city__column10__0519C6AF]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[city3] ADD  CONSTRAINT [DF__city__column10__0519C6AF]  DEFAULT (NULL) FOR [COUNTRYISO2]
+GO
+/****** Object:  Default [DF__city__column12__060DEAE8]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[city3] ADD  CONSTRAINT [DF__city__column12__060DEAE8]  DEFAULT (NULL) FOR [ADMINCODE2]
+GO
+/****** Object:  Default [DF__city__column13__07020F21]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[city3] ADD  CONSTRAINT [DF__city__column13__07020F21]  DEFAULT (NULL) FOR [column13]
+GO
+/****** Object:  Default [DF__city__column14__07F6335A]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[city3] ADD  CONSTRAINT [DF__city__column14__07F6335A]  DEFAULT (NULL) FOR [column14]
+GO
+/****** Object:  Default [DF__city__POPULATION__08EA5793]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[city3] ADD  CONSTRAINT [DF__city__POPULATION__08EA5793]  DEFAULT (NULL) FOR [POPULATION]
+GO
+/****** Object:  Default [DF__city__column16__09DE7BCC]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[city3] ADD  CONSTRAINT [DF__city__column16__09DE7BCC]  DEFAULT (NULL) FOR [column16]
+GO
+/****** Object:  Default [DF__city__column17__0AD2A005]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[city3] ADD  CONSTRAINT [DF__city__column17__0AD2A005]  DEFAULT (NULL) FOR [column17]
+GO
+/****** Object:  Default [DF__category__PARENT__15C52FC4]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[category] ADD  DEFAULT ((0)) FOR [PARENTCATID]
+GO
+/****** Object:  Default [DF_category_DEFAULTCAT]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[category] ADD  CONSTRAINT [DF_category_DEFAULTCAT]  DEFAULT ((0)) FOR [DEFAULTCAT]
+GO
+/****** Object:  Default [DF_category_ORDERVALUE]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[category] ADD  CONSTRAINT [DF_category_ORDERVALUE]  DEFAULT ((0)) FOR [ORDERVALUE]
+GO
+/****** Object:  Default [DF__country__COUNTRY__1273C1CD]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[country] ADD  CONSTRAINT [DF__country__COUNTRY__1273C1CD]  DEFAULT (N'') FOR [COUNTRYISO]
+GO
+/****** Object:  Default [DF__country__ISO3__1367E606]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[country] ADD  CONSTRAINT [DF__country__ISO3__1367E606]  DEFAULT (NULL) FOR [ISO3]
+GO
+/****** Object:  Default [DF__country__ISONUME__145C0A3F]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[country] ADD  CONSTRAINT [DF__country__ISONUME__145C0A3F]  DEFAULT (NULL) FOR [ISONUMERIC]
+GO
+/****** Object:  Default [DF__country__FIPS__15502E78]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[country] ADD  CONSTRAINT [DF__country__FIPS__15502E78]  DEFAULT (NULL) FOR [FIPS]
+GO
+/****** Object:  Default [DF__country__COUNTRY__164452B1]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[country] ADD  CONSTRAINT [DF__country__COUNTRY__164452B1]  DEFAULT (NULL) FOR [COUNTRYNAME]
+GO
+/****** Object:  Default [DF__country__CAPITAL__173876EA]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[country] ADD  CONSTRAINT [DF__country__CAPITAL__173876EA]  DEFAULT (NULL) FOR [CAPITAL]
+GO
+/****** Object:  Default [DF__country__AREA__182C9B23]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[country] ADD  CONSTRAINT [DF__country__AREA__182C9B23]  DEFAULT (NULL) FOR [AREA]
+GO
+/****** Object:  Default [DF__country__POPULAT__1920BF5C]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[country] ADD  CONSTRAINT [DF__country__POPULAT__1920BF5C]  DEFAULT (NULL) FOR [POPULATION]
+GO
+/****** Object:  Default [DF__country__CONTINE__1A14E395]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[country] ADD  CONSTRAINT [DF__country__CONTINE__1A14E395]  DEFAULT (NULL) FOR [CONTINENT]
+GO
+/****** Object:  Default [DF__country__TLD__1B0907CE]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[country] ADD  CONSTRAINT [DF__country__TLD__1B0907CE]  DEFAULT (NULL) FOR [TLD]
+GO
+/****** Object:  Default [DF__country__CURRENC__1BFD2C07]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[country] ADD  CONSTRAINT [DF__country__CURRENC__1BFD2C07]  DEFAULT (NULL) FOR [CURRENCYCODE]
+GO
+/****** Object:  Default [DF__country__CURRENC__1CF15040]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[country] ADD  CONSTRAINT [DF__country__CURRENC__1CF15040]  DEFAULT (NULL) FOR [CURRENCYNAME]
+GO
+/****** Object:  Default [DF__country__PHONE__1DE57479]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[country] ADD  CONSTRAINT [DF__country__PHONE__1DE57479]  DEFAULT (NULL) FOR [PHONE]
+GO
+/****** Object:  Default [DF__country__POSTALC__1ED998B2]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[country] ADD  CONSTRAINT [DF__country__POSTALC__1ED998B2]  DEFAULT (NULL) FOR [POSTALCODEFORMAT]
+GO
+/****** Object:  Default [DF__country__POSTALC__1FCDBCEB]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[country] ADD  CONSTRAINT [DF__country__POSTALC__1FCDBCEB]  DEFAULT (NULL) FOR [POSTALCODEREGEX]
+GO
+/****** Object:  Default [DF__country__LANGUAG__20C1E124]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[country] ADD  CONSTRAINT [DF__country__LANGUAG__20C1E124]  DEFAULT (NULL) FOR [LANGUAGES]
+GO
+/****** Object:  Default [DF__country__GEONAME__21B6055D]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[country] ADD  CONSTRAINT [DF__country__GEONAME__21B6055D]  DEFAULT (NULL) FOR [GEONAMEID]
+GO
+/****** Object:  Default [DF__country__NEIGHBO__22AA2996]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[country] ADD  CONSTRAINT [DF__country__NEIGHBO__22AA2996]  DEFAULT (NULL) FOR [NEIGHBOURS]
+GO
+/****** Object:  Default [DF__country__EQUIVAL__239E4DCF]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[country] ADD  CONSTRAINT [DF__country__EQUIVAL__239E4DCF]  DEFAULT (NULL) FOR [EQUIVALENTFIBSCODE]
+GO
+/****** Object:  Default [DF__Shop__URLNAME__32AB8735]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[Shop] ADD  CONSTRAINT [DF__Shop__URLNAME__32AB8735]  DEFAULT (NULL) FOR [URLNAME]
+GO
+/****** Object:  Default [DF__Shop__IMAGESP__339FAB6E]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[Shop] ADD  CONSTRAINT [DF__Shop__IMAGESP__339FAB6E]  DEFAULT ((1000)) FOR [IMAGESPACE]
+GO
+/****** Object:  Default [DF__Shop__ACTIVE__3493CFA7]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[Shop] ADD  CONSTRAINT [DF__Shop__ACTIVE__3493CFA7]  DEFAULT (0x01) FOR [ACTIVE]
+GO
+/****** Object:  Default [DF__Shop__THEMENR__3587F3E0]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[Shop] ADD  CONSTRAINT [DF__Shop__THEMENR__3587F3E0]  DEFAULT ((1)) FOR [THEMENR]
+GO
+/****** Object:  Default [DF__Shop__AVATAR__367C1819]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[Shop] ADD  CONSTRAINT [DF__Shop__AVATAR__367C1819]  DEFAULT (N' ') FOR [AVATAR]
+GO
+/****** Object:  Default [DF__Shop__CREATED__37703C52]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[Shop] ADD  CONSTRAINT [DF__Shop__CREATED__37703C52]  DEFAULT ('1970-01-01 00:00:00') FOR [CREATEDATE]
+GO
+/****** Object:  Default [DF__Shop__UNITLIK__3864608B]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[Shop] ADD  CONSTRAINT [DF__Shop__UNITLIK__3864608B]  DEFAULT ((0)) FOR [UNITLIKE]
+GO
+/****** Object:  Default [DF__Shop__UNITDIS__395884C4]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[Shop] ADD  CONSTRAINT [DF__Shop__UNITDIS__395884C4]  DEFAULT ((0)) FOR [UNITDISLIKE]
+GO
+/****** Object:  Default [DF__Shop__LATITUD__3A4CA8FD]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[Shop] ADD  CONSTRAINT [DF__Shop__LATITUD__3A4CA8FD]  DEFAULT ((0.00000)) FOR [LATITUDE]
+GO
+/****** Object:  Default [DF__Shop__LONGITU__3B40CD36]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[Shop] ADD  CONSTRAINT [DF__Shop__LONGITU__3B40CD36]  DEFAULT ((0.00000)) FOR [LONGITUDE]
+GO
+/****** Object:  Default [DF_Shop_CURRENCY]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[Shop] ADD  CONSTRAINT [DF_Shop_CURRENCY]  DEFAULT ('') FOR [CURRENCY]
+GO
+/****** Object:  Default [DF_Shop_NOACTIVEITEMS]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[Shop] ADD  CONSTRAINT [DF_Shop_NOACTIVEITEMS]  DEFAULT ((0)) FOR [NOACTIVEITEMS]
+GO
+/****** Object:  Default [DF_Shop_LASTUPDATED]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[Shop] ADD  CONSTRAINT [DF_Shop_LASTUPDATED]  DEFAULT ('1970-01-01 00:00:00') FOR [LASTUPDATED]
+GO
+/****** Object:  Default [DF_Shop_CITYID]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[Shop] ADD  CONSTRAINT [DF_Shop_CITYID]  DEFAULT ((0)) FOR [CITYID]
+GO
+/****** Object:  Default [DF_Shop_PREMIUMTYPE]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[Shop] ADD  CONSTRAINT [DF_Shop_PREMIUMTYPE]  DEFAULT ((0)) FOR [PREMIUMTYPE]
+GO
+/****** Object:  Default [DF_Shop_UNITFOLLOWERS]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[Shop] ADD  CONSTRAINT [DF_Shop_UNITFOLLOWERS]  DEFAULT ((0)) FOR [UNITFOLLOWERS]
+GO
+/****** Object:  Default [DF__item__USERNR__1DB06A4F]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[item] ADD  CONSTRAINT [DF__item__USERNR__1DB06A4F]  DEFAULT ((1)) FOR [USERNR]
+GO
+/****** Object:  Default [DF__item__ITEMNAME__1EA48E88]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[item] ADD  CONSTRAINT [DF__item__ITEMNAME__1EA48E88]  DEFAULT (NULL) FOR [ITEMNAME]
+GO
+/****** Object:  Default [DF__item__FRIENDPRIC__1F98B2C1]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[item] ADD  CONSTRAINT [DF__item__FRIENDPRIC__1F98B2C1]  DEFAULT ((0.00)) FOR [FRIENDPRICE]
+GO
+/****** Object:  Default [DF__item__ITEMSTATUS__208CD6FA]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[item] ADD  CONSTRAINT [DF__item__ITEMSTATUS__208CD6FA]  DEFAULT (0x01) FOR [ITEMSTATUS]
+GO
+/****** Object:  Default [DF__item__VISIT__2180FB33]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[item] ADD  CONSTRAINT [DF__item__VISIT__2180FB33]  DEFAULT ((0)) FOR [VISIT]
+GO
+/****** Object:  Default [DF__item__ENDDATE__22751F6C]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[item] ADD  CONSTRAINT [DF__item__ENDDATE__22751F6C]  DEFAULT ('1970-01-01 00:00:00') FOR [ENDDATE]
+GO
+/****** Object:  Default [DF_item_SHOWDATE]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[item] ADD  CONSTRAINT [DF_item_SHOWDATE]  DEFAULT (getutcdate()) FOR [SHOWDATE]
+GO
+/****** Object:  Default [DF_item_LASTUPDATED]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[item] ADD  CONSTRAINT [DF_item_LASTUPDATED]  DEFAULT (((2000)-(1))-(1)) FOR [LASTUPDATED]
+GO
+/****** Object:  Default [DF__item__ITEMTYPE__6BEEF189]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[item] ADD  CONSTRAINT [DF__item__ITEMTYPE__6BEEF189]  DEFAULT ((0)) FOR [ITEMTYPE]
+GO
+/****** Object:  Default [DF__themes__ShopN__7C1A6C5A]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[themes] ADD  CONSTRAINT [DF__themes__ShopN__7C1A6C5A]  DEFAULT (NULL) FOR [ShopNR]
+GO
+/****** Object:  Default [DF__themes__ISPUBLIC__7D0E9093]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[themes] ADD  CONSTRAINT [DF__themes__ISPUBLIC__7D0E9093]  DEFAULT (0x01) FOR [ISPUBLIC]
+GO
+/****** Object:  Default [DF__themes__ISACCEPT__7E02B4CC]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[themes] ADD  CONSTRAINT [DF__themes__ISACCEPT__7E02B4CC]  DEFAULT (0x00) FOR [ISACCEPTED]
+GO
+/****** Object:  Default [DF__themes__ISDEFAUL__7EF6D905]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[themes] ADD  CONSTRAINT [DF__themes__ISDEFAUL__7EF6D905]  DEFAULT (0x00) FOR [ISDEFAULT]
+GO
+/****** Object:  ForeignKey [FK_REGION_COUNTRY]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[REGION]  WITH CHECK ADD  CONSTRAINT [FK_REGION_COUNTRY] FOREIGN KEY([COUNTRYISO])
+REFERENCES [dbo].[country] ([COUNTRYISO])
+GO
+ALTER TABLE [dbo].[REGION] CHECK CONSTRAINT [FK_REGION_COUNTRY]
+GO
+/****** Object:  ForeignKey [Shop$FK_Shop_themes_THEMENR]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[Shop]  WITH CHECK ADD  CONSTRAINT [Shop$FK_Shop_themes_THEMENR] FOREIGN KEY([THEMENR])
+REFERENCES [dbo].[themes] ([THEMENR])
+GO
+ALTER TABLE [dbo].[Shop] CHECK CONSTRAINT [Shop$FK_Shop_themes_THEMENR]
+GO
+/****** Object:  ForeignKey [themes$FK_themes_Shop_ShopNR]    Script Date: 03/07/2013 17:42:34 ******/
+ALTER TABLE [dbo].[themes]  WITH CHECK ADD  CONSTRAINT [themes$FK_themes_Shop_ShopNR] FOREIGN KEY([ShopNR])
+REFERENCES [dbo].[Shop] ([ShopNR])
+ON UPDATE CASCADE
+ON DELETE CASCADE
+GO
+ALTER TABLE [dbo].[themes] CHECK CONSTRAINT [themes$FK_themes_Shop_ShopNR]
+GO
+
+
+INSERT INTO [country]
+           ([COUNTRYISO]
+           ,[ISO3]
+           ,[ISONUMERIC]
+           ,[FIPS]
+           ,[COUNTRYNAME]
+           ,[CAPITAL]
+           ,[AREA]
+           ,[POPULATION]
+           ,[CONTINENT]
+           ,[TLD]
+           ,[CURRENCYCODE]
+           ,[CURRENCYNAME]
+           ,[PHONE]
+           ,[POSTALCODEFORMAT]
+           ,[POSTALCODEREGEX]
+           ,[LANGUAGES]
+           ,[GEONAMEID]
+           ,[NEIGHBOURS]
+         )
+     VALUES
+           ('IN','IND',
+           '752'
+           ,'IN'
+           ,'India'
+           ,'Delhi'
+           ,'449964'
+           ,'9045000'
+           ,'AS'
+           ,'.in'
+           ,'INR'
+           ,'Rupees'
+           ,'46'
+           ,'ZZ-### ##'
+           ,'^(?:ZZ)*(\d{5})$'
+           ,'ta-In,hi-IN'
+           ,2661886
+           ,'PK,CH'
+          )
+GO
+
+INSERT INTO [REGION]
+           ([REGIONNR]
+           ,[REGIONNAME]
+           ,[ASCIINAME]
+           ,[ALTERNATENAMES]
+           ,[LATITUDE]
+           ,[LONGITUDE]
+           ,[FEATURECLASS]
+           ,[FEATURECODE]
+           ,[COUNTRYISO]
+           ,[COUNTRYISO2]
+           ,[ADMIN1CODE]
+           ,[ADMIN2CODE]
+           ,[ADMIN3CODE]
+           ,[ADMIN4CODE]
+           ,[POPULATION]
+           ,[ELEVATION]
+           ,[DEM]
+           ,[TIMEZONE]
+           ,[MODIFICATIONDATE])
+     VALUES
+           (2702259
+           ,'Tamil Nadu'
+           ,'Tamil Nadu'
+           ,'State of Tamil Nadu'
+           ,'57.33332825'
+           ,16
+           ,'A'
+           ,'ADM1'
+           ,'IN'
+           ,NULL
+           ,'9'
+           ,NULL
+           ,NULL
+           ,NULL
+           ,'233168'
+           ,0
+           ,142
+           ,'Delhi/Chennai'
+           ,'11/5/2011 0:00')
+GO
+
+
+INSERT INTO [CITY]
+           ([CITYID]
+           ,[CITYNAME]
+           ,[ASCIINAME]
+           ,[ALTERNATENAMES]
+           ,[LATITUDE]
+           ,[LONGITUDE]
+           ,[FEATURECLASS]
+           ,[FEATURECODE]
+           ,[COUNTRYISO]
+           ,[COUNTRYISO2]
+           ,[ADMIN1CODE]
+           ,[ADMIN2CODE]
+           ,[ADMIN3CODE]
+           ,[ADMIN4CODE]
+           ,[POPULATION]
+           ,[ELEVATION]
+           ,[DEM]
+           ,[TIMEZONE]
+           ,[MODIFICATIONDATE]
+           ,[REGIONNR])
+     VALUES
+           (2702261
+           ,'Chennai'
+           ,'Chennai'
+           ,'Chennai'
+           ,56.6615715
+           ,16.36162949
+           ,'P'
+           ,'PPLA'
+           ,'IN'
+           ,NULL
+           ,'9'
+           ,'880'
+           ,NULL
+           ,NULL
+           ,34744
+           ,0
+           ,7
+           ,'Delhi/Chennai'
+           ,'3/28/2010 0:00'
+           ,2702259)
+GO
+
+
+
+INSERT INTO [CITY]
+           ([CITYID]
+           ,[CITYNAME]
+           ,[ASCIINAME]
+           ,[ALTERNATENAMES]
+           ,[LATITUDE]
+           ,[LONGITUDE]
+           ,[FEATURECLASS]
+           ,[FEATURECODE]
+           ,[COUNTRYISO]
+           ,[COUNTRYISO2]
+           ,[ADMIN1CODE]
+           ,[ADMIN2CODE]
+           ,[ADMIN3CODE]
+           ,[ADMIN4CODE]
+           ,[POPULATION]
+           ,[ELEVATION]
+           ,[DEM]
+           ,[TIMEZONE]
+           ,[MODIFICATIONDATE]
+           ,[REGIONNR])
+     VALUES
+           (2711859
+           ,'Salem'
+           ,'Salem'
+           ,'Salem'
+           ,56.71667099
+           ,16.53333092
+           ,'P'
+           ,'PPL'
+           ,'IN'
+           ,NULL
+           ,'9'
+           ,'840'
+           ,NULL
+           ,NULL
+           ,0
+           ,0
+           ,35
+           ,'Delhi/Chennai'
+           ,'3/28/2010 0:00'
+           ,2702259)
+GO
+
+INSERT INTO [CITY]
+           ([CITYID]
+           ,[CITYNAME]
+           ,[ASCIINAME]
+           ,[ALTERNATENAMES]
+           ,[LATITUDE]
+           ,[LONGITUDE]
+           ,[FEATURECLASS]
+           ,[FEATURECODE]
+           ,[COUNTRYISO]
+           ,[COUNTRYISO2]
+           ,[ADMIN1CODE]
+           ,[ADMIN2CODE]
+           ,[ADMIN3CODE]
+           ,[ADMIN4CODE]
+           ,[POPULATION]
+           ,[ELEVATION]
+           ,[DEM]
+           ,[TIMEZONE]
+           ,[MODIFICATIONDATE]
+           ,[REGIONNR])
+     VALUES
+           (2715324
+           ,'SNR'
+           ,'SNR'
+           ,'SNR'
+           ,56.65000153
+           ,16.45000076
+           ,'P'
+           ,'PPL'
+           ,'IN'
+           ,NULL
+           ,'9'
+           ,''
+           ,NULL
+           ,NULL
+           ,4636
+           ,0
+           ,-9999
+           ,'Delhi/Chennai'
+           ,'3/28/2010 0:00'
+           ,2702259)
+GO
+
+
+
+
+INSERT INTO [category]
+           ([CATID]
+           ,[PARENTCATID]
+           ,[CATNAME]
+           ,[DEFAULTCAT]
+           ,[ORDERVALUE])
+     VALUES
+           (1
+           ,0
+           ,'Electronical'
+           ,0
+           ,1)
+           
+INSERT INTO [category]
+           ([CATID]
+           ,[PARENTCATID]
+           ,[CATNAME]
+           ,[DEFAULTCAT]
+           ,[ORDERVALUE])
+     VALUES
+           (2
+           ,0
+           ,'Entertaining'
+           ,0
+           ,2)
+GO
+
+INSERT INTO [category]
+           ([CATID]
+           ,[PARENTCATID]
+           ,[CATNAME]
+           ,[DEFAULTCAT]
+           ,[ORDERVALUE])
+     VALUES
+           (3
+           ,0
+           ,'Other'
+           ,0
+           ,99)
+GO
+
+INSERT INTO [category]
+           ([CATID]
+           ,[PARENTCATID]
+           ,[CATNAME]
+           ,[DEFAULTCAT]
+           ,[ORDERVALUE])
+     VALUES
+           (4
+           ,1
+           ,'Phones'
+           ,0
+           ,1)
+GO
+
+INSERT INTO [category]
+           ([CATID]
+           ,[PARENTCATID]
+           ,[CATNAME]
+           ,[DEFAULTCAT]
+           ,[ORDERVALUE])
+     VALUES
+           (5
+           ,1
+           ,'Computers'
+           ,0
+           ,2)
+GO
+
+INSERT INTO [category]
+           ([CATID]
+           ,[PARENTCATID]
+           ,[CATNAME]
+           ,[DEFAULTCAT]
+           ,[ORDERVALUE])
+     VALUES
+           (6
+           ,1
+           ,'TVs'
+           ,0
+           ,3)
+GO
+
+INSERT INTO [category]
+           ([CATID]
+           ,[PARENTCATID]
+           ,[CATNAME]
+           ,[DEFAULTCAT]
+           ,[ORDERVALUE])
+     VALUES
+           (7
+           ,2
+           ,'Games'
+           ,0
+           ,1)
+GO
+
+INSERT INTO [category]
+           ([CATID]
+           ,[PARENTCATID]
+           ,[CATNAME]
+           ,[DEFAULTCAT]
+           ,[ORDERVALUE])
+     VALUES
+           (8
+           ,2
+           ,'Music'
+           ,0
+           ,2)
+GO
+
+
+INSERT INTO [themes]
+           ([THEMENAME]
+           ,[STYLE]
+           ,[IMAGE]
+           ,[ShopNR]
+           ,[ISPUBLIC]
+           ,[ISACCEPTED]
+           ,[ISDEFAULT])
+     VALUES
+           ('Default'
+           ,'a { color:inherit; }'
+           ,'f1d8bd97-47e3-4428-a0ad-f7209ca8f245.png'
+           ,NULL
+           ,1
+           ,1
+           ,1)
+GO
+
+
+INSERT INTO [Shop]
+           ([USERNR]
+           ,[URLNAME]
+           ,[HEADER]
+           ,[ShopID]
+           ,[IMAGESPACE]
+           ,[DESCRIPTION]
+           ,[ACTIVE]
+           ,[THEMENR]
+           ,[AVATAR]
+           ,[CREATEDATE]
+           ,[UNITLIKE]
+           ,[UNITDISLIKE]
+           ,[LATITUDE]
+           ,[LONGITUDE]
+           ,[CURRENCY]
+           ,[NOACTIVEITEMS]
+           ,[LASTUPDATED]
+           ,[CITYID]
+           ,[PREMIUMTYPE]
+           ,[UNITFOLLOWERS])
+     VALUES
+           (1
+           ,'Baba Electronics'
+           ,'Baba Electronics'
+           ,'AE1234C9-6586-4D04-8C09-30D50D38C0A4'
+           ,1000
+           ,'Baba Electronics Ind Pvt Ltd'
+           ,1
+           ,1
+           ,'Avatar.png'
+           ,'10/2/2012 15:03'
+           ,0
+           ,0
+           ,56.68326397
+           ,16.34514999
+           ,'INR'
+           ,66860
+           ,'2/15/2013 15:29'
+           ,2702261
+           ,0
+           ,0)
+GO
+
+
+INSERT INTO [Shop]
+           ([USERNR]
+           ,[URLNAME]
+           ,[HEADER]
+           ,[ShopID]
+           ,[IMAGESPACE]
+           ,[DESCRIPTION]
+           ,[ACTIVE]
+           ,[THEMENR]
+           ,[AVATAR]
+           ,[CREATEDATE]
+           ,[UNITLIKE]
+           ,[UNITDISLIKE]
+           ,[LATITUDE]
+           ,[LONGITUDE]
+           ,[CURRENCY]
+           ,[NOACTIVEITEMS]
+           ,[LASTUPDATED]
+           ,[CITYID]
+           ,[PREMIUMTYPE]
+           ,[UNITFOLLOWERS])
+     VALUES
+           (2
+           ,'nammashop.com'
+           ,'NammaShop'
+           ,'0B36F09E-EBF0-40F9-8385-CC8EC573409B'
+           ,100
+           ,'Namma Shop'
+           ,1
+           ,1
+           ,'Avatar.png'
+           ,'10/12/2012 15:03'
+           ,0
+           ,0
+           ,56.6615715
+           ,16.34514999
+           ,'INR'
+           ,230
+           ,'2/10/2013 15:29'
+           ,2702261
+           ,0
+           ,0)
+GO
+
+
+INSERT INTO [Shop]
+           ([USERNR]
+           ,[URLNAME]
+           ,[HEADER]
+           ,[ShopID]
+           ,[IMAGESPACE]
+           ,[DESCRIPTION]
+           ,[ACTIVE]
+           ,[THEMENR]
+           ,[AVATAR]
+           ,[CREATEDATE]
+           ,[UNITLIKE]
+           ,[UNITDISLIKE]
+           ,[LATITUDE]
+           ,[LONGITUDE]
+           ,[CURRENCY]
+           ,[NOACTIVEITEMS]
+           ,[LASTUPDATED]
+           ,[CITYID]
+           ,[PREMIUMTYPE]
+           ,[UNITFOLLOWERS])
+     VALUES
+           (3
+           ,'DVDnBlueR'
+           ,'MusicStore'
+           ,'F9FEFFB5-D23C-496C-8D4F-248FD90D02B9'
+           ,100
+           ,'Music Store Inc'
+           ,1
+           ,1
+           ,'Avatar.png'
+           ,'10/12/2012 15:03'
+           ,0
+           ,0
+           ,56.71382192
+           ,16.52951002
+           ,'INR'
+           ,400
+           ,'2/10/2013 15:29'
+           ,2711859
+           ,0
+           ,0)
+GO
+
+
+INSERT INTO [item]
+           ([USERNR]
+           ,[ShopNR]
+           ,[ITEMID]
+           ,[ITEMNAME]
+           ,[HEADER]
+           ,[DESCRIPTION]
+           ,[PRICE]
+           ,[FRIENDPRICE]
+           ,[CREATEDATE]
+           ,[ITEMSTATUS]
+           ,[CURRENCYCODE]
+           ,[CATID]
+           ,[VISIT]
+           ,[ENDDATE]
+           ,[PREAMBLE]
+           ,[SHOWDATE]
+           ,[LASTUPDATED]
+           ,[ITEMTYPE])
+     VALUES
+           (1
+           ,4
+           ,'96DF3EF4-23E5-4E99-ABDD-4DF32DA1C96F'
+           ,'Sony TV'
+           ,'Sony Bravio'
+           ,'36 inch LED'
+           ,500
+           ,400
+           ,'10/2/2012 15:03'
+           ,1
+           ,'INR'
+           ,6
+           ,2
+           ,'10/10/2013 15:03'
+           ,''
+           ,'10/2/2012 15:03'
+           ,'1/2/2012 15:03'
+           ,0)
+GO
+
+
+INSERT INTO [item]
+           ([USERNR]
+           ,[ShopNR]
+           ,[ITEMID]
+           ,[ITEMNAME]
+           ,[HEADER]
+           ,[DESCRIPTION]
+           ,[PRICE]
+           ,[FRIENDPRICE]
+           ,[CREATEDATE]
+           ,[ITEMSTATUS]
+           ,[CURRENCYCODE]
+           ,[CATID]
+           ,[VISIT]
+           ,[ENDDATE]
+           ,[PREAMBLE]
+           ,[SHOWDATE]
+           ,[LASTUPDATED]
+           ,[ITEMTYPE])
+     VALUES
+           (1
+           ,5
+           ,'61A73D61-D6D4-4E68-A815-0D6E6DD65F4F'
+           ,'Samsung'
+           ,'Samsung LED'
+           ,'42 inch LED'
+           ,600
+           ,400
+           ,'10/2/2012 15:03'
+           ,1
+           ,'INR'
+           ,6
+           ,2
+           ,'10/10/2013 15:03'
+           ,''
+           ,'10/2/2012 15:03'
+           ,'1/2/2012 15:03'
+           ,0)
+GO
+
+
+INSERT INTO [item]
+           ([USERNR]
+           ,[ShopNR]
+           ,[ITEMID]
+           ,[ITEMNAME]
+           ,[HEADER]
+           ,[DESCRIPTION]
+           ,[PRICE]
+           ,[FRIENDPRICE]
+           ,[CREATEDATE]
+           ,[ITEMSTATUS]
+           ,[CURRENCYCODE]
+           ,[CATID]
+           ,[VISIT]
+           ,[ENDDATE]
+           ,[PREAMBLE]
+           ,[SHOWDATE]
+           ,[LASTUPDATED]
+           ,[ITEMTYPE])
+     VALUES
+           (1
+           ,5
+           ,'AE17179C-396E-495D-9932-3BADBEFC8530'
+           ,'Samsung S2X'
+           ,'Samsung S2X'
+           ,'64 inch LED'
+           ,1000
+           ,900
+           ,'10/2/2012 15:03'
+           ,1
+           ,'SEK'
+           ,6
+           ,2
+           ,'10/10/2013 15:03'
+           ,''
+           ,'10/2/2012 15:03'
+           ,'1/2/2012 15:03'
+           ,0)
+GO
+
+
+INSERT INTO [item]
+           ([USERNR]
+           ,[ShopNR]
+           ,[ITEMID]
+           ,[ITEMNAME]
+           ,[HEADER]
+           ,[DESCRIPTION]
+           ,[PRICE]
+           ,[FRIENDPRICE]
+           ,[CREATEDATE]
+           ,[ITEMSTATUS]
+           ,[CURRENCYCODE]
+           ,[CATID]
+           ,[VISIT]
+           ,[ENDDATE]
+           ,[PREAMBLE]
+           ,[SHOWDATE]
+           ,[LASTUPDATED]
+           ,[ITEMTYPE])
+     VALUES
+           (1
+           ,6
+           ,'F64BA0FD-4B14-488A-AF54-ED986AF0FE2E'
+           ,'IPhone 5'
+           ,'IPhone 5'
+           ,'IPhone 5'
+           ,150
+           ,90
+           ,'10/2/2012 15:03'
+           ,1
+           ,'INR'
+           ,4
+           ,2
+           ,'10/10/2013 15:03'
+           ,''
+           ,'10/2/2012 15:03'
+           ,'1/2/2012 15:03'
+           ,0)
+GO
+
+
+INSERT INTO [item]
+           ([USERNR]
+           ,[ShopNR]
+           ,[ITEMID]
+           ,[ITEMNAME]
+           ,[HEADER]
+           ,[DESCRIPTION]
+           ,[PRICE]
+           ,[FRIENDPRICE]
+           ,[CREATEDATE]
+           ,[ITEMSTATUS]
+           ,[CURRENCYCODE]
+           ,[CATID]
+           ,[VISIT]
+           ,[ENDDATE]
+           ,[PREAMBLE]
+           ,[SHOWDATE]
+           ,[LASTUPDATED]
+           ,[ITEMTYPE])
+     VALUES
+           (1
+           ,6
+           ,'81758CEF-9C32-4B94-8BC6-00B1F70AF5BA'
+           ,'Nokia Lumia'
+           ,'Nokia Lumia'
+           ,'Nokia Lumia'
+           ,120
+           ,90
+           ,'10/2/2012 15:03'
+           ,1
+           ,'INR'
+           ,4
+           ,2
+           ,'10/10/2013 15:03'
+           ,''
+           ,'10/2/2012 15:03'
+           ,'1/2/2012 15:03'
+           ,0)
+GO
+
+
