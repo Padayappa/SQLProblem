@@ -164,10 +164,6 @@ BEGIN
  
     
  SET @sqlClause = ' WHERE J.ACTIVE = 1 AND IT.ITEMSTATUS = 1 AND IT.ENDDATE > @currentDate'
-    IF (@currentUserNr>0)
-  
-
-
 
 IF (@itemType=1) 
 	SET @sqlClause = @sqlClause + ' AND IT.ITEMTYPE = 1'
