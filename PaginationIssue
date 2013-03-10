@@ -1232,6 +1232,3 @@ INSERT INTO [item]
            ,0)
 GO
 
-exec [Item_SearchItemsSP] @ShopNr=0,@unitItems=20,@catId=0,@language='',@sortOrder=0,@search=default,@countryIso='IN',
-@regionNr=2702259,@cityId=2702261,@maxPrice=0,@page=1,@distance=50,@currentDate='2013-02-24 19:29:50.623',@isFavoriteShop=0,
-@currentUserNr=0,@latitude=0,@longitude=0,@itemType=0
