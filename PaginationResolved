@@ -1,0 +1,259 @@
+
+SET ANSI_NULLS ON
+GO
+
+SET QUOTED_IDENTIFIER ON
+GO
+
+CREATE PROCEDURE [dbo].[Item_SearchItems_New]
+(
+  @ShopNr INT
+  ,@unitItems INT = 20
+	,@sortOrder INT = 0
+	,@language CHAR(2) = 'EN'
+	,@catId INT
+	,@search NVARCHAR(100) = ''
+	,@countryIso NCHAR(2) = ''
+	,@regionNr INT = 0
+	,@cityId INT = 0
+	,@maxPrice DECIMAL(10, 2)
+	,@page INT
+	,@currentDate DATETIME2(0)
+	,@distance NUMERIC(4, 1)
+	,@isFavoriteShop BIT = 0
+	,@currentUserNr INT = 0
+	,@latitude FLOAT(53) = 0
+	,@longitude FLOAT(53) = 0
+	,@itemType TINYINT = 0
+	,@unitRows INT OUTPUT
+	,@unitPages INT OUTPUT
+)
+AS
+BEGIN
+	SET XACT_ABORT ON
+	SET NOCOUNT ON
+
+	DECLARE @sql NVARCHAR(MAX)
+			,@sqlSelect NVARCHAR(MAX) = ''
+			,@sqlTempTable NVARCHAR(MAX) = '#itemSearch'
+			,@sqlCountTempTable NVARCHAR(MAX) = '#itemCount'
+			,@sqlInto NVARCHAR(MAX) = ''
+			,@sqlFrom NVARCHAR(MAX) = ''
+			,@sqlClause NVARCHAR(MAX) = ''
+			,@sqlGroup NVARCHAR(MAX) = ''
+			,@params NVARCHAR(MAX)
+			,@citySearch bit = 0
+			,@gpsSearch bit = 0
+			,@sortOrderString NVARCHAR(MAX) = 'ORDER BY IT.CREATEDATE DESC'
+			,@sortOrderString2 NVARCHAR(MAX) = ''
+
+	IF (@cityid <= 0) AND (@currentUserNr > 0) AND (@latitude = 0)
+		SELECT	@cityid = CITYID
+		FROM	USERINFO
+		WHERE	USERNR = @currentUserNr
+	ELSE IF (@cityid <= 0) AND (@latitude > 0)
+		SET	@gpsSearch = 1
+	ELSE IF (@cityid > 0)
+		SET	@citySearch = 1
+
+	
+
+	IF (@sortOrderString2 = '')
+		SET @sortOrderString2 = @sortOrderString
+
+	IF (@unitItems = 0)
+		SET @unitItems = 20
+
+	IF (@page <= 0)
+		SET @page = 1
+
+	SET @sqlSelect =
+		'SELECT		J.URLNAME
+					,IT.ITEMNR
+					,IT.USERNR
+					,IT.ShopNR
+					,IT.ITEMID
+					,IT.ITEMNAME
+					,IT.HEADER
+					,IT.DESCRIPTION
+					,IT.PRICE
+					,IT.CREATEDATE
+					,IT.ITEMSTATUS
+					,IT.CURRENCYCODE
+					,IT.CATID
+					,IT.VISIT
+					,IT.ENDDATE
+					,IT.PREAMBLE
+					,IT.SHOWDATE
+					,IT.LASTUPDATED
+					,C.CATNAME AS CATNAME
+					
+					,J.HEADER AS ShopHEADER
+					,J.LATITUDE
+					,J.LONGITUDE
+					,R.REGIONNAME AS REGIONNAME
+					,CY.COUNTRYISO
+					,R.REGIONNR
+					,CY.COUNTRYNAME AS COUNTRYNAME
+					,CI.CITYNAME AS CITY
+					,ROW_NUMBER() OVER (' + @sortOrderString + ') AS RowNumber'
+	
+	SET @sqlGroup =
+		' GROUP BY	J.URLNAME
+					,IT.ITEMNR
+					,IT.USERNR
+					,IT.ShopNR
+					,IT.ITEMID
+					,IT.ITEMNAME
+					,IT.HEADER
+					,IT.DESCRIPTION
+					,IT.PRICE
+					,IT.CREATEDATE
+					,IT.ITEMSTATUS
+					,IT.CURRENCYCODE
+					,IT.CATID
+					,IT.VISIT
+					,IT.ENDDATE
+					,IT.PREAMBLE
+					,IT.SHOWDATE
+					,IT.LASTUPDATED
+					,C.CATNAME
+					
+					,J.HEADER
+					,J.LATITUDE
+					,J.LONGITUDE
+					,R.REGIONNAME
+					,CY.COUNTRYISO
+					,R.REGIONNR
+					,CY.COUNTRYNAME
+					,CI.CITYNAME'
+
+	SET @sqlFrom =
+		' FROM		dbo.ITEM AS IT
+		INNER JOIN	dbo.Shop AS J
+				ON	IT.ShopNR = J.ShopNR
+		INNER JOIN	dbo.CITY AS CI
+				ON	CI.CITYID = J.CITYID
+		INNER JOIN	dbo.COUNTRY AS CY
+				ON	CI.COUNTRYISO = CY.COUNTRYISO
+		INNER JOIN	dbo.REGION AS R
+				ON	CI.REGIONNR = R.REGIONNR'
+
+		SET @sqlFrom = @sqlFrom +
+			' INNER JOIN	dbo.CATEGORY AS C
+					ON	IT.CATID = C.CATID '
+
+		SET @sqlClause =
+			' WHERE		J.ACTIVE = 1
+					AND	IT.ITEMSTATUS = 1
+					AND	IT.ENDDATE > @currentDate'		
+
+		IF (@itemType = 1) 
+			SET @sqlClause = @sqlClause +
+				' AND IT.ITEMTYPE = 1'
+
+		IF (@catId > 0)
+			SET @sqlClause = @sqlClause +
+				' AND (C.CATID = @catId OR C.PARENTCATID = @catId)'
+		
+		IF (@ShopNr > 0)
+			SET @sqlClause = @sqlClause +
+				' AND IT.ShopNR = @ShopNr'
+		
+		IF (@search <> '') 
+			SET @sqlClause = @sqlClause +
+				' AND ((IT.HEADER LIKE ''%' + @search + '%'') OR (IT.DESCRIPTION LIKE ''%' + @search + '%''))'
+
+		SET	@sqlInto = ' INTO ' + @sqlTempTable + ' ';
+		
+		SET @sql =	@sqlSelect +
+					@sqlInto +
+					@sqlFrom +
+					@sqlClause +
+					@sqlGroup
+
+		SET @sql = @sql + ';
+			
+			SELECT	@unitRows = @@ROWCOUNT
+					,@unitPages = (@unitRows / @unitItems) + 1;
+			
+			SELECT	*
+			FROM	' + @sqlTempTable + ' AS IT
+			WHERE	RowNumber BETWEEN (@page - 1) * @unitItems + 1 AND @unitItems * @page
+			' + @sortOrderString2 + ';
+			
+			SELECT		CATNAME
+						,CITY
+						,COUNT(*) AS ITEMCOUNT
+						,GROUPING_ID(CATNAME, CITY) AS ITEMCOUNTTYPEID
+			INTO		'+ @sqlCountTempTable + '
+			FROM		' + @sqlTempTable + '
+			GROUP BY	GROUPING SETS
+						(
+							(CATNAME)
+							,(CITY)
+							,()
+						)
+			
+			SELECT		ISNULL(CATNAME, ''All Categories'') AS CATNAME
+						,ITEMCOUNT
+			FROM		'+ @sqlCountTempTable + '
+			WHERE		ITEMCOUNTTYPEID IN (1, 3)
+			ORDER BY	ITEMCOUNTTYPEID DESC
+						,CATNAME
+			
+			SELECT		ISNULL(CITY, ''All Cities'') AS CITY
+						,ITEMCOUNT
+			FROM		'+ @sqlCountTempTable + '
+			WHERE		ITEMCOUNTTYPEID IN (2, 3)
+			ORDER BY	ITEMCOUNTTYPEID DESC
+						,CITY';
+
+		SELECT @params =
+			N'@language nchar(2), ' +
+			N'@ShopNr int, ' +
+			N'@cityId int, ' +
+			N'@catId int, ' +
+			N'@distance numeric(4,1), ' +
+			N'@currentDate datetime, ' + 
+			N'@unitItems int,' + 
+			N'@countryIso nchar(2),' + 
+			N'@regionNr int,' + 
+			N'@page int,' + 
+			N'@currentUserNr int,' +
+			N'@latitude float,' +
+			N'@longitude float,' +
+			N'@unitRows int OUTPUT,' +
+			N'@unitPages int OUTPUT'
+    
+    --print @sql
+    
+	EXEC	sp_executesql @sql
+			,@params
+			,@language
+			,@ShopNr
+			,@cityId
+			,@catId
+			,@distance
+			,@currentDate
+			,@unitItems
+			,@countryIso
+			,@regionNr
+			,@page
+			,@currentUserNr
+			,@latitude
+			,@longitude
+			,@unitRows OUTPUT
+			,@unitPages OUTPUT
+END
+GO
+
+
+DECLARE @unitPages INT
+    ,@unitRows INT
+
+exec Item_SearchItems_New @ShopNr=0,@unitItems=20,@catId=0,@language='SV',@sortOrder=0,@search=default,@countryIso='SE',
+@regionNr=2702259,@cityId=2702261,@maxPrice=0,@page=1,@distance=50,@currentDate='2013-02-24 19:29:50.623',@isFavoriteShop=0,
+@currentUserNr=0,@latitude=0,@longitude=0,@itemType=0,@unitRows = @unitRows OUTPUT, @unitPages = @unitPages OUTPUT
+
+SELECT	@unitPages, @unitRows
