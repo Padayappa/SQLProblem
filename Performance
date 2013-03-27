@@ -1,0 +1,219 @@
+    
+ALTER PROCEDURE [dbo].[SearchPatients]    
+(    
+     @TenantId BIGINT    
+ ,@unitItems INT = 10    
+ ,@page INT    
+ ,@sortOrder INT = 0    
+ ,@PatientNumber NVARCHAR(50) =''    
+ ,@FirstName NVARCHAR(100)=''    
+ ,@LastName NVARCHAR(100)=''    
+ ,@PersonNumber NVARCHAR(20)=''  
+ ,@City NVARCHAR(100)=''    
+ ,@ResponsiblePersonId BIGINT =0   
+ ,@CategoryId INT=0     
+ --,@AddedFromDate SMALLDATETIME    
+ --,@AddedToDate SMALLDATETIME    
+ ,@Mobile NVARCHAR(20)=''    
+ --,@AddedBy BIGINT    
+ ,@unitRows BIGINT OUTPUT    
+ ,@unitPages INT OUTPUT    
+)    
+AS    
+BEGIN    
+ SET XACT_ABORT ON    
+ SET NOCOUNT ON    
+ IF(@TenantId IS NULL)    
+      RAISERROR('The value for @TenantID should not be null', 15, 1) -- with log      
+          
+ DECLARE @sql NVARCHAR(MAX)    
+   ,@sqlSelect NVARCHAR(MAX) = ''    
+   ,@sqlTableVariable NVARCHAR(MAX) = ''       
+   ,@sqlInto NVARCHAR(MAX) = ''    
+   ,@sqlFrom NVARCHAR(MAX) = ''    
+   ,@sqlClause NVARCHAR(MAX) = ''    
+   ,@sqlGroup NVARCHAR(MAX) = ''    
+   ,@params NVARCHAR(MAX)    
+   ,@citySearch bit = 0    
+   ,@gpsSearch bit = 0    
+   ,@sortOrderString NVARCHAR(MAX) = 'ORDER BY PAT.PatientId DESC'    
+   ,@sortOrderString2 NVARCHAR(MAX) = ''    
+    
+ IF (@sortOrder = 1)    
+  SET @sortOrderString = 'ORDER BY PER.PersonNumber ASC'    
+ ELSE IF (@sortOrder = 2)     
+  SET @sortOrderString = 'ORDER BY PER.FirstName ASC'    
+ ELSE IF (@sortOrder = 3)    
+  SET @sortOrderString = 'ORDER BY PAT.ResponsiblePersonId DESC'    
+     
+ IF (@unitItems = 0)    
+  SET @unitItems = 10    
+    
+ IF (@page <= 0)    
+  SET @page = 1    
+    
+ SET @sqlTableVariable='DECLARE @PatientSearch TABLE(  
+         [PatientId] [bigint] NOT NULL,  
+         [PatientIdentifier] [nvarchar](50) NULL,  
+         [PersonNumber] [nvarchar](20) NULL,  
+         [FirstName] [nvarchar](100) NOT NULL,  
+         [LastName] [nvarchar](100) NOT NULL,  
+         [ResFirstName] [nvarchar](100) NOT NULL,  
+         [ResLastName] [nvarchar](100) NOT NULL,  
+         [AddFirstName] [nvarchar](100) NOT NULL,  
+         [AddLastName] [nvarchar](100) NOT NULL,  
+         [Address] [nvarchar](255) NULL,  
+         [City] [nvarchar](50) NULL,  
+         [State] [nvarchar](50) NULL,  
+         [ZipCode] [nvarchar](20) NULL,  
+         [Country] [nvarchar](50) NULL,  
+         [ListComments] [nvarchar](1000) NULL,  
+         [Cave] [nvarchar](500) NULL,  
+         [WarningMessage] [nvarchar](500) NULL,  
+         [RowNumber] [bigint] NULL  
+         )'  
+    
+ SET @sqlSelect =    
+  'SELECT  PAT.PatientId    
+     ,PAT.PatientIdentifier        
+     ,PER.PersonNumber    
+     ,PER.FirstName    
+     ,PER.LastName    
+     ,RES_PER.FirstName AS ResFirstName    
+     ,RES_PER.LastName AS ResLastName    
+     ,ADD_PER.FirstName AS AddFirstName    
+     ,ADD_PER.LastName AS AddLastName    
+     ,PER.Address    
+     ,PER.City    
+     ,PER.State    
+     ,PER.ZipCode    
+     ,PER.Country         
+     ,PAT.ListComments    
+     ,PAT.Cave    
+     ,PAT.WarningMessage         
+     ,ROW_NUMBER() OVER (' + @sortOrderString + ') AS RowNumber'    
+     
+ SET @sqlGroup =' GROUP BY PAT.PatientId    
+     ,PAT.PatientIdentifier        
+     ,PER.PersonNumber    
+     ,PER.FirstName    
+     ,PER.LastName    
+     ,RES_PER.FirstName   
+     ,RES_PER.LastName  
+     ,ADD_PER.FirstName   
+     ,ADD_PER.LastName  
+     ,PER.Address    
+     ,PER.City    
+     ,PER.State    
+     ,PER.ZipCode    
+     ,PER.Country         
+     ,PAT.ListComments    
+     ,PAT.Cave    
+     ,PAT.WarningMessage   
+  '    
+    
+ SET @sqlFrom =    
+  ' FROM  dbo.Patient AS PAT    
+  INNER JOIN dbo.Person AS PER    
+    ON PAT.PersonId = PER.PersonId    
+  INNER JOIN  dbo.Person AS RES_PER    
+             ON  PAT.ResponsiblePersonId = RES_PER.PersonId    
+  INNER JOIN  dbo.Person AS ADD_PER    
+             ON  PAT.AddedBy = ADD_PER.PersonId    
+  '    
+     
+    
+  SET @sqlClause =' WHERE  PAT.TenantId = @TenantId'    
+    
+      
+  IF (@PatientNumber <> '')     
+   SET @sqlClause = @sqlClause +    
+    ' AND ((PAT.PatientIdentifier LIKE ''%' + @PatientNumber + '%''))'    
+      
+  IF (@FirstName <> '')     
+   SET @sqlClause = @sqlClause +    
+    ' AND ((PER.FirstName LIKE ''%' + @FirstName + '%''))'    
+        
+  IF (@LastName <> '')     
+   SET @sqlClause = @sqlClause +    
+    ' AND ((PER.LastName LIKE ''%' + @LastName + '%''))'    
+            
+  IF (@PersonNumber <> '')     
+   SET @sqlClause = @sqlClause +    
+    ' AND ((PER.PersonNumber LIKE ''%' + @PersonNumber + '%''))'   
+      
+  IF (@City <> '')     
+   SET @sqlClause = @sqlClause +    
+    ' AND ((PER.City LIKE ''%' + @City + '%''))'     
+        
+  IF (@Mobile <> '')     
+   SET @sqlClause = @sqlClause +    
+    ' AND ((PER.MobileNumber LIKE ''%' + @Mobile + '%''))'    
+        
+  IF (@ResponsiblePersonId > 0)     
+     SET @sqlClause = @sqlClause +    
+      ' AND PAT.ResponsiblePersonId = @ResponsiblePersonId'    
+              
+  IF (@CategoryId > 0)    
+  BEGIN    
+   SET @sqlFrom = @sqlFrom +    
+   ' INNER JOIN dbo.Booking AS B    
+     ON PAT.PatientId = B.PatientId'     
+         
+   SET @sqlClause = @sqlClause +    
+    ' AND B.CategoryId = @CategoryId '    
+     
+  END    
+    
+  SET @sqlInto = ' INSERT INTO @PatientSearch ';    
+      
+  SET @sql = @sqlTableVariable  +    
+     @sqlInto +   
+     @sqlSelect+   
+     @sqlFrom +    
+     @sqlClause +    
+     @sqlGroup    
+    
+  SET @sql = @sql + ';    
+       
+   SELECT @unitRows = @@ROWCOUNT    
+     ,@unitPages = (@unitRows / @unitItems) + 1;    
+       
+   SELECT *    
+   FROM @PatientSearch AS IT    
+   WHERE RowNumber BETWEEN (@page - 1) * @unitItems + 1 AND @unitItems * @page    
+   ' + @sortOrderString2 + ';'    
+       
+       
+    
+  SELECT @params =    
+   N'@TenantId BIGINT, ' +    
+   N'@unitItems int,' +     
+   N'@page int,' +     
+   N'@PatientNumber NVARCHAR(50), ' +    
+   N'@FirstName NVARCHAR(100), ' +    
+   N'@LastName NVARCHAR(100), ' +    
+   N'@PersonNumber NVARCHAR(20), ' +     
+   N'@ResponsiblePersonId BIGINT,' +    
+   N'@CategoryId INT,' +    
+   N'@Mobile NVARCHAR(20),' +    
+   N'@unitRows int OUTPUT,' +    
+   N'@unitPages int OUTPUT'    
+        
+    print @sql    
+        
+ EXEC sp_executesql @sql    
+   ,@params    
+   ,@TenantId    
+   ,@unitItems    
+   ,@page    
+   ,@PatientNumber    
+   ,@FirstName    
+   ,@LastName    
+   ,@PersonNumber    
+   ,@ResponsiblePersonId    
+   ,@CategoryId    
+   ,@Mobile    
+   ,@unitRows OUTPUT    
+   ,@unitPages OUTPUT    
+END    
